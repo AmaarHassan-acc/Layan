@@ -65,6 +65,7 @@
     line-height: 1.1;
     animation: bounceIn 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
+  .header h1 .flip-x { display: inline-block; transform: scaleX(-1); }
   .header p {
     color: #6B8AFD;
     font-size: clamp(1rem, 4vw, 1.3rem);
@@ -353,7 +354,7 @@
   <!-- Screen 1: Alphabet grid -->
   <main class="screen active" id="alphabetScreen">
     <header class="header">
-      <h1>🌈 Layan 🌈</h1>
+      <h1><span class="flip-x">✈️</span> Layan ✈️</h1>
       <p>Tap a letter to learn!</p>
     </header>
     <div class="alphabet-grid" id="alphabetGrid"></div>
@@ -396,8 +397,8 @@
     { letter: 'I', word: 'Ice Cream', emoji: '🍦' },
     { letter: 'J', word: 'Juice',     emoji: '🧃' },
     { letter: 'K', word: 'Kite',      emoji: '🪁' },
-    { letter: 'L', word: 'Layan',     emoji: '🦁', image: 'Layan.png' },
-    { letter: 'M', word: 'Mohamed',   emoji: '🐵', image: 'Mido.png' },
+    { letter: 'L', word: 'Layan',     emoji: '🦁', image: 'Layan.png', speakWord: 'ليان', speakLang: 'ar' },
+    { letter: 'M', word: 'Mohamed',   emoji: '🐵', image: 'Mido.png', speakWord: 'محمد', speakLang: 'ar' },
     { letter: 'N', word: 'Nest',      emoji: '🪺' },
     { letter: 'O', word: 'Orange',    emoji: '🍊' },
     { letter: 'P', word: 'Panda',     emoji: '🐼' },
@@ -471,11 +472,15 @@
     }
   }
 
-  function pickVoice() {
+  function pickVoice(langCode) {
     if (!supportsSpeech) return null;
     const voices = speechSynthesis.getVoices();
     if (!voices || voices.length === 0) return null;
-    // Prefer English voices
+    if (langCode === 'ar') {
+      const ar = voices.find(v => /^ar/i.test(v.lang));
+      if (ar) return ar;
+    }
+    // English / fallback
     const en = voices.filter(v => /^en[-_]/i.test(v.lang) || /english/i.test(v.name));
     return (en[0] || voices[0]);
   }
@@ -485,7 +490,7 @@
     try {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      const v = pickVoice();
+      const v = pickVoice('en');
       if (v) u.voice = v;
       u.lang   = (v && v.lang) ? v.lang : 'en-US';
       u.rate   = 0.85;
@@ -495,9 +500,46 @@
     } catch(e) { /* ignore */ }
   }
 
+  // Speaks "{letter}. {letter} is for {word}." Uses Arabic voice for the
+  // word part when speakLang is set and an Arabic voice is available.
+  function speakLetter(item) {
+    if (!supportsSpeech) return;
+    try {
+      speechSynthesis.cancel();
+
+      const enV = pickVoice('en');
+      const wantAr = item.speakLang === 'ar';
+      const arV = wantAr ? pickVoice('ar') : null;
+      const useArabic = !!(arV && arV.lang && /^ar/i.test(arV.lang) && item.speakWord);
+
+      // Part 1: letter intro in English
+      const intro = new SpeechSynthesisUtterance(`${item.letter}. ${item.letter} is for`);
+      if (enV) intro.voice = enV;
+      intro.lang   = (enV && enV.lang) || 'en-US';
+      intro.rate   = 0.85;
+      intro.pitch  = 1.15;
+      intro.volume = 1;
+
+      // Part 2: the word — Arabic if available, otherwise English fallback
+      const wordText  = useArabic ? item.speakWord : item.word;
+      const wordVoice = useArabic ? arV : enV;
+      const wordLang  = useArabic ? arV.lang : ((enV && enV.lang) || 'en-US');
+
+      const wordU = new SpeechSynthesisUtterance(wordText);
+      if (wordVoice) wordU.voice = wordVoice;
+      wordU.lang   = wordLang;
+      wordU.rate   = useArabic ? 0.8 : 0.85;
+      wordU.pitch  = 1.1;
+      wordU.volume = 1;
+
+      speechSynthesis.speak(intro);
+      speechSynthesis.speak(wordU);
+    } catch(e) { /* ignore */ }
+  }
+
   function speakCurrent() {
     const item = letters[currentIndex];
-    speak(`${item.letter}. ${item.letter} is for ${item.word}.`);
+    speakLetter(item);
     burstConfetti();
   }
 
@@ -551,7 +593,7 @@
     window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
 
     // Speak after a tiny delay so the animation feels in sync
-    setTimeout(() => speak(`${item.letter}. ${item.letter} is for ${item.word}.`), 350);
+    setTimeout(() => speakLetter(item), 350);
   }
 
   function goBack() {
